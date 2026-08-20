@@ -2,11 +2,11 @@
   "$meta": {
     "schema_version": 1,
     "name": "AstrBot Community Danger Plugins Market",
-    "version": "2026-08-20T09:41:35.093Z",
+    "version": "2026-08-20T10:23:10.719Z",
     "homepage": "https://github.com/Furina1Love/AstrBot-market-danger/edit/main/package.json",
     "repository": "https://github.com/Furina1Love/AstrBot-market-danger",
     "description": "AstrBot Danger Plugins Market",
-    "updated_at": "2026-08-20T09:41:35.093Z"
+    "updated_at": "2026-08-20T10:23:10.719Z"
   },
   "backrooms-yrc/astrbot_plugin_currentcortex": {
     "author": "backrooms-yrc",
@@ -100,6 +100,25 @@
     "updated_at": "2026-08-20T09:41:35.093Z",
     "commit_sha": "ac466bdc70ea244ac5eb266f894b4f007232f7c5",
     "stars": 0,
+    "download_count": 0
+  },
+  "GEMILUXVII/astrbot_plugin_jm_cosmos": {
+    "author": "GEMILUXVII",
+    "name": "astrbot_plugin_jm_cosmos",
+    "version": "2.7.6",
+    "repo": "https://github.com/GEMILUXVII/astrbot_plugin_jm_cosmos",
+    "desc": "额，顾名思义",
+    "display_name": "JM漫画下载",
+    "download_url": "https://github.com/GEMILUXVII/astrbot_plugin_jm_cosmos/archive/refs/tags/v2.7.6.zip",
+    "logo": "",
+    "category": "神秘",
+    "support_platforms": [
+      "aiocqhttp"
+    ],
+    "astrbot_version": "<=9178",
+    "updated_at": "2026-08-20T10:23:10.719Z",
+    "commit_sha": "75834072d21d599861d0fbb7d23f83dc85ddc476",
+    "stars": 264,
     "download_count": 0
   }
 }
