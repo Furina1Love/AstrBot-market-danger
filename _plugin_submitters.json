@@ -22,5 +22,23 @@
     "submit_issue": 13,
     "submitted_at": "2026-08-20T10:23:01Z",
     "repo": "https://github.com/GEMILUXVII/astrbot_plugin_jm_cosmos"
+  },
+  "backrooms-yrc/astrbot_plugin_currentcortex": {
+    "submitter": "unknown",
+    "submit_issue": null,
+    "submitted_at": null,
+    "repo": "https://github.com/backrooms-yrc/astrbot_plugin_currentcortex"
+  },
+  "Adebush/astrbot_plugin_group_cup": {
+    "submitter": "unknown",
+    "submit_issue": null,
+    "submitted_at": null,
+    "repo": "https://github.com/Adebush/astrbot_plugin_group_cup"
+  },
+  "shitianyaa/astrbot_plugin_get_px": {
+    "submitter": "unknown",
+    "submit_issue": null,
+    "submitted_at": null,
+    "repo": "https://github.com/shitianyaa/astrbot_plugin_get_px"
   }
 }
