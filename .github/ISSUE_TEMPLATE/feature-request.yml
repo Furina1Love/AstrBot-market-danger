@@ -1,0 +1,90 @@
+name: "插件上传"
+description: "提交你的 AstrBot 插件"
+title: "[插件] "
+labels:
+  - "pluginadd"
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        你可以在这里上传未审核通过的插件 awa
+        请尽量按照表单规范来写，以方便工作流插入 package.json 内
+
+  - type: input
+    id: plugin_name
+    attributes:
+      label: 插件名称
+      description: 请输入你为插件取的名字
+    validations:
+      required: true
+
+  - type: input
+    id: repo_url
+    attributes:
+      label: 仓库地址
+      description: 你的插件的 GitHub 仓库地址
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 插件介绍
+      description: 介绍你的插件内容/功能
+      placeholder: |
+        这个插件可以为群友提供一些方便......
+    validations:
+      required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: 插件分类
+      description: 你认为你的插件是什么类别
+      options:
+        - 神秘
+        - 正常
+        - 危险
+        - 其它
+      default: 1
+    validations:
+      required: true
+
+  - type: input
+    id: astrbot_version
+    attributes:
+      label: 支持的 AstrBot 版本
+      description: |
+        填写版本范围，例如：>=4.0.0,<5.0.0
+        >=xxx 表示高于等于，<xxx 表示低于
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: supported_adapters
+    attributes:
+      label: 支持的适配器
+      description: |
+        请选择你的插件支持的所有适配器（可多选）
+        注：aiocqhttp 是 OneBot 适配器
+      options:
+        - label: aiocqhttp (OneBot)
+        - label: qq_official
+        - label: telegram
+        - label: discord
+        - label: kook
+        - label: qq_official_webhook
+        - label: wecom
+        - label: lark
+        - label: dingtalk
+        - label: weixin_oc
+        - label: vocechat
+        - label: satori
+        - label: misskey
+        - label: line
+        - label: matrix
+        - label: mattermost
+        - label: slack
+    validations:
+      required: false

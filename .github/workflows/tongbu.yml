@@ -1,0 +1,325 @@
+name: Sync Plugin Registry
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+env:
+  PKG_PATH: package.json
+  ARCHIVE_PATH: _removed_plugins.json
+  SUBMITTERS_PATH: _plugin_submitters.json
+  THRESHOLD: 3
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Sync all plugins
+        id: sync
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const pkgPath = process.env.PKG_PATH;
+            const archivePath = process.env.ARCHIVE_PATH;
+            const submittersPath = process.env.SUBMITTERS_PATH;
+            const THRESHOLD = parseInt(process.env.THRESHOLD, 10);
+
+            if (!fs.existsSync(pkgPath)) {
+              core.setFailed(`${pkgPath} 不存在`);
+              return;
+            }
+
+            const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+
+            // 读取归档
+            let archive = {};
+            if (fs.existsSync(archivePath)) {
+              archive = JSON.parse(fs.readFileSync(archivePath, 'utf8'));
+            }
+
+            // 读取提交者数据库
+            let submitters = {};
+            if (fs.existsSync(submittersPath)) {
+              submitters = JSON.parse(fs.readFileSync(submittersPath, 'utf8'));
+            }
+
+            const now = new Date().toISOString();
+            const entries = Object.entries(pkg).filter(([k]) => k !== '$meta');
+            core.info(`共发现 ${entries.length} 个插件，开始同步...\n`);
+
+            let updated = 0, failed = 0, removed = 0, unchanged = 0;
+            const summary = [];
+
+            // ========== 辅助：查找插件对应的收录 Issue 提交者 ==========
+            async function findSubmitter(key, repoUrl) {
+              try {
+                // 搜索包含插件标识的已关闭 issue（收录 issue 通常已关闭）
+                const result = await github.rest.search.issuesAndPullRequests({
+                  q: `repo:${context.repo.owner}/${context.repo.repo} is:issue is:closed "${key}" in:title`,
+                  per_page: 5,
+                  sort: 'created',
+                  order: 'desc'
+                });
+                for (const item of result.data.items) {
+                  if (item.title.toLowerCase().includes('pluginadd') ||
+                      item.title.toLowerCase().includes('plugin') ||
+                      item.body?.includes(repoUrl)) {
+                    return {
+                      submitter: item.user.login,
+                      submit_issue: item.number,
+                      submitted_at: item.created_at
+                    };
+                  }
+                }
+              } catch (e) {
+                core.warning(`[${key}] 搜索收录 Issue 失败: ${e.message}`);
+              }
+              return null;
+            }
+
+            // ========== 主循环 ==========
+            for (const [key, plugin] of entries) {
+              try {
+                // --- 解析仓库 ---
+                const repoUrl = (plugin.repo || '').replace(/\/+$/, '').replace(/\.git$/, '');
+                const match = repoUrl.match(/github\.com\/([\w.-]+)\/([\w.-]+)/);
+                if (!match) {
+                  summary.push(`| ${key} | ⚠️ 无效仓库地址 |`);
+                  failed++;
+                  continue;
+                }
+                const [_, rOwner, rRepo] = match;
+                core.info(`[${key}] 检查 ${rOwner}/${rRepo} ...`);
+
+                // --- 确保提交者记录存在 ---
+                if (!submitters[key]) {
+                  const info = await findSubmitter(key, repoUrl);
+                  submitters[key] = info
+                    ? { ...info, repo: repoUrl }
+                    : { submitter: 'unknown', submit_issue: null, submitted_at: null, repo: repoUrl };
+                  core.info(`[${key}] 提交者记录: ${submitters[key].submitter}`);
+                  // 搜索后额外等待，避免触发 search API 限流
+                  await new Promise(r => setTimeout(r, 500));
+                }
+
+                // --- 1. 连通性检查 ---
+                let repoInfo;
+                try {
+                  repoInfo = await github.rest.repos.get({ owner: rOwner, repo: rRepo });
+                } catch (e) {
+                  if (e.status === 404) {
+                    const prevCount = plugin._consecutive_404 || 0;
+                    const newCount = prevCount + 1;
+
+                    if (newCount >= THRESHOLD) {
+                      // ---- 移除并归档 ----
+                      const removedPlugin = { ...pkg[key] };
+                      delete pkg[key];
+                      archive[key] = {
+                        ...removedPlugin,
+                        _removed_at: now,
+                        _removed_reason: `连续 ${newCount} 次 404`
+                      };
+
+                      const submitterInfo = submitters[key] || {};
+                      const mention = submitterInfo.submitter && submitterInfo.submitter !== 'unknown'
+                        ? `@${submitterInfo.submitter}`
+                        : '_未知提交者_';
+
+                      summary.push(`| ${key} | 🗑️ 连续 ${newCount} 次 404，已移除 |`);
+                      core.warning(`[${key}] 已移除，通知 ${mention}`);
+                      removed++;
+
+                      // ---- 创建通知 Issue ----
+                      try {
+                        const body = [
+                          '## 🗑️ 插件已自动移除',
+                          '',
+                          '| 项目 | 值 |',
+                          '|---|---|',
+                          `| 插件标识 | \`${key}\` |`,
+                          `| 显示名称 | ${removedPlugin.display_name || key} |`,
+                          `| 仓库地址 | ${removedPlugin.repo || '未知'} |`,
+                          `| 最后已知版本 | ${removedPlugin.version || '未知'} |`,
+                          `| 最后已知 commit | \`${(removedPlugin.commit_sha || '').substring(0, 7)}\` |`,
+                          `| 连续 404 次数 | ${newCount} |`,
+                          `| 移除时间 | ${now} |`,
+                          `| 原始提交者 | ${mention} |`,
+                          `| 收录 Issue | ${submitterInfo.submit_issue ? '#' + submitterInfo.submit_issue : '未找到'} |`,
+                          '',
+                          '### 可能原因',
+                          '- 仓库已被作者删除或改名',
+                          '- 仓库已转为私有',
+                          '',
+                          '### 后续操作',
+                          '- 如属误删，请重新提交 pluginadd Issue 恢复收录',
+                          '- 如仓库已改名，请更新地址后重新提交',
+                          '- 此 Issue 仅作记录，无需回复',
+                        ].join('\n');
+
+                        await github.rest.issues.create({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          title: `[Auto-Remove] ${removedPlugin.display_name || key} 因连续 404 被移除`,
+                          body,
+                          labels: ['auto-remove', 'plugin-notice']
+                        });
+                        core.info(`[${key}] 通知 Issue 已创建`);
+                      } catch (notifyErr) {
+                        core.error(`[${key}] 通知 Issue 创建失败: ${notifyErr.message}`);
+                      }
+
+                      continue;
+                    } else {
+                      pkg[key] = { ...plugin, _consecutive_404: newCount };
+                      summary.push(`| ${key} | ⚠️ 404 (${newCount}/${THRESHOLD})，暂保留 |`);
+                      failed++;
+                      continue;
+                    }
+                  } else {
+                    summary.push(`| ${key} | ❌ API 错误: ${e.message} |`);
+                    failed++;
+                    continue;
+                  }
+                }
+
+                // ✅ 连通成功，重置计数
+                if (pkg[key]._consecutive_404) delete pkg[key]._consecutive_404;
+
+                const newStars = repoInfo.data.stargazers_count ?? 0;
+                const defaultBranch = repoInfo.data.default_branch || 'main';
+
+                // --- 2. 最新版本 ---
+                let newVersion = plugin.version;
+                let newDownloadUrl = plugin.download_url || '';
+                try {
+                  const releases = await github.rest.repos.listReleases({
+                    owner: rOwner, repo: rRepo, per_page: 1
+                  });
+                  if (releases.data.length) {
+                    const tagName = releases.data[0].tag_name;
+                    const cleanVersion = tagName.replace(/^v/, '');
+                    if (cleanVersion !== newVersion) newVersion = cleanVersion;
+                    newDownloadUrl = `${repoUrl}/archive/refs/tags/${tagName}.zip`;
+                  }
+                } catch (e) {
+                  core.warning(`[${key}] 获取 release 失败: ${e.message}`);
+                }
+
+                // --- 3. 最新 commit ---
+                let newCommitSha = plugin.commit_sha || '';
+                try {
+                  const commits = await github.rest.repos.listCommits({
+                    owner: rOwner, repo: rRepo, sha: defaultBranch, per_page: 1
+                  });
+                  if (commits.data.length) newCommitSha = commits.data[0].sha;
+                } catch (e) {
+                  core.warning(`[${key}] 获取 commit 失败: ${e.message}`);
+                }
+
+                // --- 4. 无 release 回退 ---
+                if (!newDownloadUrl.includes('/refs/tags/')) {
+                  newDownloadUrl = `${repoUrl}/archive/refs/heads/${defaultBranch}.zip`;
+                }
+
+                // --- 5. 比较并写入 ---
+                const oldStars = plugin.stars ?? 0;
+                const oldVersion = plugin.version;
+                const oldCommit = plugin.commit_sha || '';
+                const oldDownload = plugin.download_url || '';
+
+                const changes = [];
+                if (newVersion !== oldVersion)      changes.push(`版本 ${oldVersion} → ${newVersion}`);
+                if (newStars !== oldStars)          changes.push(`⭐ ${oldStars} → ${newStars}`);
+                if (newCommitSha !== oldCommit)     changes.push(`commit 已更新`);
+                if (newDownloadUrl !== oldDownload) changes.push(`下载链接已更新`);
+
+                if (changes.length > 0) {
+                  pkg[key] = {
+                    ...pkg[key],
+                    stars: newStars,
+                    version: newVersion,
+                    commit_sha: newCommitSha,
+                    download_url: newDownloadUrl,
+                    updated_at: now
+                  };
+                  delete pkg[key]._consecutive_404;
+                  updated++;
+                  summary.push(`| ${key} | ✅ ${changes.join(', ')} |`);
+                } else {
+                  delete pkg[key]._consecutive_404;
+                  unchanged++;
+                  summary.push(`| ${key} | ➖ 无变化 |`);
+                }
+
+              } catch (e) {
+                core.warning(`[${key}] 未预期错误: ${e.message}`);
+                summary.push(`| ${key} | ❌ ${e.message} |`);
+                failed++;
+              }
+
+              await new Promise(r => setTimeout(r, 200));
+            }
+
+            // ========== 更新 $meta ==========
+            if (pkg['$meta']) {
+              pkg['$meta'].updated_at = now;
+              pkg['$meta'].version = now;
+            }
+
+            // ========== 写回所有文件 ==========
+            fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
+            fs.writeFileSync(archivePath, JSON.stringify(archive, null, 2) + '\n');
+            fs.writeFileSync(submittersPath, JSON.stringify(submitters, null, 2) + '\n');
+
+            // ========== 输出统计 ==========
+            const total = entries.length;
+            core.info(`\n===== 同步完成 =====`);
+            core.info(`总计: ${total} | 更新: ${updated} | 无变化: ${unchanged} | 失败: ${failed} | 移除: ${removed}`);
+
+            core.setOutput('total', String(total));
+            core.setOutput('updated', String(updated));
+            core.setOutput('unchanged', String(unchanged));
+            core.setOutput('failed', String(failed));
+            core.setOutput('removed', String(removed));
+            core.setOutput('summary_table', summary.join('\n'));
+            core.setOutput('has_changes', (updated > 0 || removed > 0) ? 'true' : 'false');
+
+      - name: Commit and push
+        if: steps.sync.outputs.has_changes == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add package.json _removed_plugins.json _plugin_submitters.json
+          git commit -m "chore(sync): update ${{ steps.sync.outputs.updated }}, remove ${{ steps.sync.outputs.removed }} plugins"
+          git push
+
+      - name: Summary
+        if: always()
+        run: |
+          cat >> $GITHUB_STEP_SUMMARY << 'EOF'
+          ## 🔄 插件同步报告
+
+          | 指标 | 值 |
+          |---|---|
+          | 总计 | ${{ steps.sync.outputs.total }} |
+          | ✅ 已更新 | ${{ steps.sync.outputs.updated }} |
+          | ➖ 无变化 | ${{ steps.sync.outputs.unchanged }} |
+          | ❌ 失败 | ${{ steps.sync.outputs.failed }} |
+          | 🗑️ 已移除 | ${{ steps.sync.outputs.removed }} |
+
+          ### 详情
+
+          | 插件 | 状态 |
+          |---|---|
+          ${{ steps.sync.outputs.summary_table }}
+          EOF

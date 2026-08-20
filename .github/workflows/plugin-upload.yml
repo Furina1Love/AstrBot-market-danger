@@ -1,0 +1,649 @@
+name: Plugin Upload Handler
+
+on:
+  issues:
+    types: [opened]
+
+concurrency:
+  group: plugin-registry-write
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  handle-plugin-upload:
+    if: contains(github.event.issue.labels.*.name, 'pluginadd')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Parse issue, validate repo and update package.json
+        id: parse
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = context.payload.issue.body || '';
+            const issueNumber = context.issue.number;
+            const submitter = context.payload.issue.user.login;
+            const submittedAt = context.payload.issue.created_at;
+            const { owner, repo } = context.repo;
+
+            async function comment(text) {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: issueNumber,
+                body: text
+              });
+            }
+
+            async function fail(reason) {
+              await comment([
+                '❌ **自动处理失败**',
+                '',
+                reason,
+                '',
+                '请修正后重新提交 Issue。'
+              ].join('\n'));
+
+              core.setFailed(reason);
+            }
+
+            function readJsonSafe(file, allowEmpty = false) {
+              if (!fs.existsSync(file)) {
+                return {};
+              }
+
+              const raw = fs.readFileSync(file, 'utf8').trim();
+
+              if (!raw) {
+                if (allowEmpty) {
+                  return {};
+                }
+
+                throw new Error(`${file} 文件为空`);
+              }
+
+              let data;
+
+              try {
+                data = JSON.parse(raw);
+              } catch (e) {
+                throw new Error(
+                  `${file} JSON 格式错误: ${e.message}`
+                );
+              }
+
+              if (
+                typeof data !== 'object' ||
+                data === null ||
+                Array.isArray(data)
+              ) {
+                throw new Error(
+                  `${file} 根节点必须为对象`
+                );
+              }
+
+              return data;
+            }
+
+            function writeJsonAtomic(file, data) {
+              const tmp = `${file}.tmp`;
+
+              fs.writeFileSync(
+                tmp,
+                JSON.stringify(data, null, 2) + '\n',
+                'utf8'
+              );
+
+              fs.renameSync(tmp, file);
+            }
+
+            async function githubRetry(fn, retry = 3) {
+              let lastError;
+
+              for (let i = 0; i < retry; i++) {
+                try {
+                  return await fn();
+                } catch (e) {
+                  lastError = e;
+
+                  core.warning(
+                    `GitHub API失败 ${i + 1}/${retry}: ${e.message}`
+                  );
+
+                  await new Promise(resolve =>
+                    setTimeout(resolve, 1000 * (i + 1))
+                  );
+                }
+              }
+
+              throw lastError;
+            }
+
+            function sanitizeText(text, max = 500) {
+              return String(text || '')
+                .trim()
+                .slice(0, max);
+            }
+
+            function extractField(label) {
+              const escaped = label.replace(
+                /[.*+?^${}()|[\]\\]/g,
+                '\\$&'
+              );
+
+              const regex = new RegExp(
+                `###\\s*${escaped}\\s*\\n([\\s\\S]*?)(?=\\n###\\s|$)`
+              );
+
+              const match = body.match(regex);
+
+              if (!match) {
+                return '';
+              }
+
+              const value = match[1].trim();
+
+              if (
+                value === '_No response_' ||
+                value === ''
+              ) {
+                return '';
+              }
+
+              return value;
+            }
+
+            function normalizeVersion(tag) {
+              const version = tag
+                .replace(/^v/i, '')
+                .trim();
+
+              if (!/^\d+\.\d+\.\d+/.test(version)) {
+                return '0.0.0';
+              }
+
+              return version;
+            }
+
+            const pluginName = sanitizeText(
+              extractField('插件名称'),
+              100
+            );
+
+            const repoUrl = extractField('仓库地址')
+              .replace(/\/+$/, '')
+              .replace(/\.git$/, '');
+
+            const description = sanitizeText(
+              extractField('插件介绍'),
+              1000
+            );
+
+            const category = sanitizeText(
+              extractField('插件分类') || '其它',
+              50
+            );
+
+            const astrbotVer = sanitizeText(
+              extractField('支持的 AstrBot 版本'),
+              100
+            );
+
+            const adaptersRaw = extractField(
+              '支持的适配器'
+            );
+
+            core.info(`插件名称: ${pluginName}`);
+            core.info(`仓库地址: ${repoUrl}`);
+            core.info(`提交者: ${submitter}`);
+
+            const missing = [];
+
+            if (!pluginName) {
+              missing.push('插件名称');
+            }
+
+            if (!repoUrl) {
+              missing.push('仓库地址');
+            }
+
+            if (!astrbotVer) {
+              missing.push('支持的 AstrBot 版本');
+            }
+
+            if (missing.length) {
+              await fail(
+                `缺少必填字段：${missing.join('、')}`
+              );
+
+              return;
+            }
+
+            const urlMatch = repoUrl.match(
+              /^https:\/\/github\.com\/([A-Za-z0-9-]+)\/([A-Za-z0-9._-]+)$/
+            );
+
+            if (!urlMatch) {
+              await fail(
+                `仓库地址格式不正确，需要 GitHub 仓库链接：\n${repoUrl}`
+              );
+
+              return;
+            }
+
+            const repoOwner = urlMatch[1];
+            const repoName = urlMatch[2];
+
+            const cleanRepoUrl =
+              `https://github.com/${repoOwner}/${repoName}`;
+
+            const entryKey =
+              `${repoOwner}/${repoName}`;
+
+            if (entryKey.startsWith('$')) {
+              await fail(
+                '非法插件标识'
+              );
+
+              return;
+            }
+
+            let pkg;
+
+            try {
+              pkg = readJsonSafe(
+                'package.json'
+              );
+            } catch (e) {
+              await fail(
+                `插件注册表读取失败：\n${e.message}`
+              );
+
+              return;
+            }
+
+            let submitters;
+
+            try {
+              submitters = readJsonSafe(
+                '_plugin_submitters.json',
+                true
+              );
+            } catch (e) {
+              await fail(
+                `提交者数据库读取失败：\n${e.message}`
+              );
+
+              return;
+            }
+
+            if (pkg[entryKey]) {
+              await comment([
+                '## ⚠️ 检测到重复插件',
+                '',
+                `该插件已存在于注册表中：\`${entryKey}\``,
+                '',
+                `仓库：${pkg[entryKey].repo || '未知'}`,
+                '',
+                '此 Issue 将自动关闭。'
+              ].join('\n'));
+
+              await github.rest.issues.update({
+                owner,
+                repo,
+                issue_number: issueNumber,
+                state: 'closed',
+                state_reason: 'not_planned',
+                labels: ['duplicate']
+              });
+
+              core.setOutput(
+                'duplicate',
+                'true'
+              );
+
+              return;
+            }
+
+            const normalizedNewRepo =
+              cleanRepoUrl.toLowerCase();
+
+            const dupByRepo =
+              Object.entries(pkg)
+                .filter(([key]) => key !== '$meta')
+                .find(([, item]) => {
+                  if (!item || !item.repo) {
+                    return false;
+                  }
+
+                  return item.repo
+                    .replace(/\/+$/, '')
+                    .replace(/\.git$/, '')
+                    .toLowerCase() === normalizedNewRepo;
+                });
+
+            if (dupByRepo) {
+              await comment([
+                '## ⚠️ 检测到重复插件',
+                '',
+                `该仓库已经存在：\`${dupByRepo[0]}\``,
+                '',
+                `仓库：${dupByRepo[1].repo}`,
+                '',
+                '此 Issue 将自动关闭。'
+              ].join('\n'));
+
+              await github.rest.issues.update({
+                owner,
+                repo,
+                issue_number: issueNumber,
+                state: 'closed',
+                state_reason: 'not_planned',
+                labels: ['duplicate']
+              });
+
+              core.setOutput(
+                'duplicate',
+                'true'
+              );
+
+              return;
+            }
+
+            core.info(
+              '✅ 未检测到重复插件'
+            );
+
+            let repoInfo;
+
+            try {
+              repoInfo = await githubRetry(
+                () =>
+                  github.rest.repos.get({
+                    owner: repoOwner,
+                    repo: repoName
+                  })
+              );
+            } catch (e) {
+              if (e.status === 404) {
+                await fail(
+                  `仓库不存在或无法访问：\n${cleanRepoUrl}`
+                );
+              } else {
+                await fail(
+                  `检查仓库时发生错误：\n${e.message}`
+                );
+              }
+
+              return;
+            }
+
+            const stars =
+              repoInfo.data.stargazers_count || 0;
+
+            core.info(
+              `仓库 stars: ${stars}`
+            );
+
+            let version = '0.0.0';
+            let downloadUrl = '';
+            let commitSha = '';
+
+            try {
+              const commits =
+                await githubRetry(
+                  () =>
+                    github.rest.repos.listCommits({
+                      owner: repoOwner,
+                      repo: repoName,
+                      sha: repoInfo.data.default_branch,
+                      per_page: 1
+                    })
+                );
+
+              if (commits.data.length > 0) {
+                commitSha =
+                  commits.data[0].sha;
+              }
+            } catch (e) {
+              core.warning(
+                `获取 commit 失败：${e.message}`
+              );
+            }
+
+            try {
+              const releases =
+                await githubRetry(
+                  () =>
+                    github.rest.repos.listReleases({
+                      owner: repoOwner,
+                      repo: repoName,
+                      per_page: 1
+                    })
+                );
+
+              if (releases.data.length > 0) {
+                const tagName =
+                  releases.data[0].tag_name;
+
+                version =
+                  normalizeVersion(tagName);
+
+                downloadUrl =
+                  `${cleanRepoUrl}/archive/refs/tags/${tagName}.zip`;
+              }
+            } catch (e) {
+              core.warning(
+                `获取 release 失败：${e.message}`
+              );
+            }
+
+            if (!downloadUrl) {
+              downloadUrl =
+                `${cleanRepoUrl}/archive/refs/heads/${repoInfo.data.default_branch}.zip`;
+            }
+
+            core.info(
+              `最终版本: ${version}`
+            );
+
+            core.info(
+              `下载地址: ${downloadUrl}`
+            );
+
+            const adapters =
+              adaptersRaw
+                ? adaptersRaw
+                    .split('\n')
+                    .map(line => {
+                      const checked =
+                        line.trim().match(
+                          /^-\s*\[x\]\s*(.+)$/i
+                        ) ||
+                        line.trim().match(
+                          /^\[x\]\s*(.+)$/i
+                        );
+
+                      if (!checked) {
+                        return null;
+                      }
+
+                      return checked[1]
+                        .replace(/\s*\(.*?\)\s*$/, '')
+                        .trim();
+                    })
+                    .filter(Boolean)
+                : [];
+
+            core.info(
+              `适配器: ${adapters.join(', ')}`
+            );
+            const now = new Date().toISOString();
+
+            pkg[entryKey] = {
+              author: repoOwner,
+              name: repoName,
+              version,
+              repo: cleanRepoUrl,
+              desc: description,
+              display_name: pluginName,
+              download_url: downloadUrl,
+              logo: '',
+              category,
+              support_platforms: adapters,
+              astrbot_version: astrbotVer,
+              updated_at: now,
+              commit_sha: commitSha,
+              stars,
+              download_count: 0
+            };
+
+            if (pkg.$meta) {
+              pkg.$meta.updated_at = now;
+              pkg.$meta.version = now;
+            }
+
+            writeJsonAtomic(
+              'package.json',
+              pkg
+            );
+
+            submitters[entryKey] = {
+              submitter,
+              submit_issue: issueNumber,
+              submitted_at: submittedAt,
+              repo: cleanRepoUrl
+            };
+
+            writeJsonAtomic(
+              '_plugin_submitters.json',
+              submitters
+            );
+
+            core.info(
+              `✅ 已写入插件: ${entryKey}`
+            );
+
+            core.setOutput(
+              'entry_key',
+              entryKey
+            );
+
+            core.setOutput(
+              'version',
+              version
+            );
+
+            core.setOutput(
+              'download_url',
+              downloadUrl
+            );
+
+            core.setOutput(
+              'duplicate',
+              'false'
+            );
+
+      - name: Validate changed files
+        if: success() && steps.parse.outputs.duplicate != 'true'
+        run: |
+          git add package.json _plugin_submitters.json
+
+          FILES=$(git diff --cached --name-only)
+
+          for file in $FILES; do
+            case "$file" in
+              package.json|_plugin_submitters.json)
+                ;;
+              *)
+                echo "❌ 检测到非法修改文件: $file"
+                exit 1
+                ;;
+            esac
+          done
+
+      - name: Commit and push
+        if: success() && steps.parse.outputs.duplicate != 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          if git diff --cached --quiet; then
+            echo "⚠️ 无文件变更，跳过提交"
+            exit 0
+          fi
+
+          git commit -m "feat(plugin): add ${{ steps.parse.outputs.entry_key }} v${{ steps.parse.outputs.version }}"
+
+          MAX_RETRIES=5
+
+          for i in $(seq 1 $MAX_RETRIES); do
+            echo "Push 尝试 $i/$MAX_RETRIES"
+
+            git fetch origin main
+
+            if git rebase origin/main; then
+              if git push origin HEAD:main; then
+                echo "✅ Push 成功"
+                exit 0
+              fi
+            else
+              echo "❌ Rebase 冲突"
+              git rebase --abort || true
+            fi
+
+            if [ "$i" -lt "$MAX_RETRIES" ]; then
+              echo "等待后重试..."
+              sleep $((i * 3))
+            fi
+          done
+
+          echo "❌ Push 重试失败"
+          exit 1
+
+      - name: Comment and close issue
+        if: success() && steps.parse.outputs.duplicate != 'true'
+        uses: actions/github-script@v7
+        env:
+          ENTRY_KEY: ${{ steps.parse.outputs.entry_key }}
+          VERSION: ${{ steps.parse.outputs.version }}
+          DOWNLOAD_URL: ${{ steps.parse.outputs.download_url }}
+        with:
+          script: |
+            const entryKey = process.env.ENTRY_KEY;
+            const version = process.env.VERSION;
+            const downloadUrl = process.env.DOWNLOAD_URL;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: [
+                '✅ **插件已成功收录！**',
+                '',
+                '| 项目 | 值 |',
+                '|---|---|',
+                `| 插件 | \`${entryKey}\` |`,
+                `| 版本 | \`v${version}\` |`,
+                `| 下载地址 | [点击下载](${downloadUrl}) |`,
+                '',
+                '感谢你的贡献！此 Issue 将自动关闭。'
+              ].join('\n')
+            });
+
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              state: 'closed',
+              state_reason: 'completed'
+            });
