@@ -2,11 +2,11 @@
   "$meta": {
     "schema_version": 1,
     "name": "AstrBot Community Danger Plugins Market",
-    "version": "2026-08-26T19:39:14.592Z",
+    "version": "2026-08-30T02:36:15.349Z",
     "homepage": "https://github.com/Furina1Love/AstrBot-market-danger/edit/main/package.json",
     "repository": "https://github.com/Furina1Love/AstrBot-market-danger",
     "description": "AstrBot Danger Plugins Market",
-    "updated_at": "2026-08-26T19:39:14.592Z"
+    "updated_at": "2026-08-30T02:36:15.349Z"
   },
   "backrooms-yrc/astrbot_plugin_currentcortex": {
     "author": "backrooms-yrc",
@@ -48,19 +48,19 @@
   "shitianyaa/astrbot_plugin_get_px": {
     "author": "shitianyaa",
     "name": "astrbot_plugin_get_px",
-    "version": "3.5.1",
+    "version": "3.6.0",
     "repo": "https://github.com/shitianyaa/astrbot_plugin_get_px",
     "desc": "通过 Lolicon 标签搜索或随机获取普通分级插画，失败时可用 Pixiv refresh_token 回退到搜索或推荐作品。支持内容安全策略、每日签到、群签到排行、主题商店、WebUI 管理中心、请求频率限制和发送重试。",
     "display_name": "画境拾珍",
-    "download_url": "https://github.com/shitianyaa/astrbot_plugin_get_px/archive/refs/tags/v3.5.1.zip",
+    "download_url": "https://github.com/shitianyaa/astrbot_plugin_get_px/archive/refs/tags/v3.6.0.zip",
     "logo": "",
     "category": "神秘",
     "support_platforms": [
       "aiocqhttp"
     ],
     "astrbot_version": ">=4.16",
-    "updated_at": "2026-08-20T12:28:57.703Z",
-    "commit_sha": "866d6cd70d0575a66f16742a581dc91d26849e1b",
+    "updated_at": "2026-08-30T02:36:15.349Z",
+    "commit_sha": "4b0def24b84b7f3998e62430893d2fb59b1a9c54",
     "stars": 17,
     "download_count": 0
   },
