@@ -2,28 +2,28 @@
   "$meta": {
     "schema_version": 1,
     "name": "AstrBot Community Danger Plugins Market",
-    "version": "2026-09-07T16:53:48.320Z",
+    "version": "2026-09-08T20:30:30.326Z",
     "homepage": "https://github.com/Furina1Love/AstrBot-market-danger/edit/main/package.json",
     "repository": "https://github.com/Furina1Love/AstrBot-market-danger",
     "description": "AstrBot Danger Plugins Market",
-    "updated_at": "2026-09-07T16:53:48.320Z"
+    "updated_at": "2026-09-08T20:30:30.326Z"
   },
   "backrooms-yrc/astrbot_plugin_currentcortex": {
     "author": "backrooms-yrc",
     "name": "astrbot_plugin_currentcortex",
-    "version": "2.5.1",
+    "version": "2.6.2",
     "repo": "https://github.com/backrooms-yrc/astrbot_plugin_currentcortex",
     "desc": "多功能 AstrBot 插件（CurrentCortex）—— Pixiv 随机图片 ·网易云点歌 ·JMComic 漫画 ·小红书/B站/抖音媒体解析 ·每日一言 ·天气 ·男娘 ·DG-LAB（郊狼） 设备管理 ·跨群聊记忆 ·按群聊开关。基于 LeiZ API。",
     "display_name": "CurrentCortex",
-    "download_url": "https://github.com/backrooms-yrc/astrbot_plugin_currentcortex/archive/refs/tags/v2.5.1.zip",
+    "download_url": "https://github.com/backrooms-yrc/astrbot_plugin_currentcortex/archive/refs/tags/v2.6.2.zip",
     "logo": "",
     "category": "神秘",
     "support_platforms": [
       "aiocqhttp"
     ],
     "astrbot_version": ">=4.15",
-    "updated_at": "2026-09-05T19:44:00.518Z",
-    "commit_sha": "2f45890274f9c1af51abb31911975c4c5671c1df",
+    "updated_at": "2026-09-08T20:30:30.326Z",
+    "commit_sha": "7c726ce896d411bc671194b7e75b843bad4c3d2e",
     "stars": 14,
     "download_count": 0
   },
@@ -116,9 +116,9 @@
       "aiocqhttp"
     ],
     "astrbot_version": "<=9178",
-    "updated_at": "2026-09-07T16:53:48.320Z",
+    "updated_at": "2026-09-08T20:30:30.326Z",
     "commit_sha": "75834072d21d599861d0fbb7d23f83dc85ddc476",
-    "stars": 275,
+    "stars": 274,
     "download_count": 0
   }
 }
