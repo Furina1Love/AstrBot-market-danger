@@ -2,11 +2,11 @@
   "$meta": {
     "schema_version": 1,
     "name": "AstrBot Community Danger Plugins Market",
-    "version": "2026-10-27T17:04:07.629Z",
+    "version": "2026-10-30T11:53:30.218Z",
     "homepage": "https://github.com/Furina1Love/AstrBot-market-danger/edit/main/package.json",
     "repository": "https://github.com/Furina1Love/AstrBot-market-danger",
     "description": "AstrBot Danger Plugins Market",
-    "updated_at": "2026-10-27T17:04:07.629Z"
+    "updated_at": "2026-10-30T11:53:30.218Z"
   },
   "backrooms-yrc/astrbot_plugin_currentcortex": {
     "author": "backrooms-yrc",
@@ -59,8 +59,8 @@
       "aiocqhttp"
     ],
     "astrbot_version": ">=4.16",
-    "updated_at": "2026-10-27T17:04:07.629Z",
-    "commit_sha": "cbd989f0863b9863997d9536ec0debf40cfc2b98",
+    "updated_at": "2026-10-30T11:53:30.218Z",
+    "commit_sha": "6e519691bd8bf9f53d86781bf343475e45f92456",
     "stars": 28,
     "download_count": 0
   },
@@ -116,9 +116,9 @@
       "aiocqhttp"
     ],
     "astrbot_version": "<=9178",
-    "updated_at": "2026-10-27T11:17:48.660Z",
+    "updated_at": "2026-10-30T11:53:30.218Z",
     "commit_sha": "75834072d21d599861d0fbb7d23f83dc85ddc476",
-    "stars": 294,
+    "stars": 295,
     "download_count": 0
   }
 }
